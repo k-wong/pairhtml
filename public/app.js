@@ -12,6 +12,7 @@ if (userName && !isValidEmail(userName)) {
   localStorage.removeItem("html-collab-name");
 }
 let currentHtml = "";
+let currentFileName = "";
 let comments = [];
 let edits = [];
 let pendingComment = null;
@@ -76,8 +77,10 @@ async function uploadHtmlFile() {
   try {
     const html = await file.text();
     const sanitized = sanitizeHtml(html);
-    await postJson(`/api/rooms/${roomId}/html`, { html: sanitized });
+    const fileName = cleanFileName(file.name);
+    await postJson(`/api/rooms/${roomId}/html`, { html: sanitized, fileName });
     currentHtml = sanitized;
+    currentFileName = fileName;
     comments = [];
     edits = [];
     renderFrame();
@@ -205,6 +208,7 @@ function connectEvents() {
   source.addEventListener("init", (event) => {
     const data = JSON.parse(event.data);
     currentHtml = data.html || "";
+    currentFileName = data.fileName || "";
     comments = data.comments || [];
     edits = data.edits || [];
     renderFrame();
@@ -215,6 +219,7 @@ function connectEvents() {
   source.addEventListener("html", (event) => {
     const data = JSON.parse(event.data);
     currentHtml = data.html || "";
+    currentFileName = data.fileName || "";
     comments = data.comments || [];
     edits = data.edits || [];
     renderFrame();
@@ -372,6 +377,10 @@ function injectFrameTools() {
       outline: 2px solid #0071e3 !important;
       outline-offset: 2px !important;
       cursor: default !important;
+    }
+    .collab-selected-large {
+      box-shadow: inset 0 0 0 3px #0071e3 !important;
+      outline-offset: -2px !important;
     }
     .collab-comment-mode, .collab-comment-mode * {
       cursor: none !important;
@@ -548,9 +557,9 @@ function injectFrameTools() {
       return;
     }
     if (event.shiftKey) {
-      toggleSelectedElement(event.target);
+      toggleSelectedElement(event.target, event);
     } else {
-      selectElement(event.target);
+      selectElement(event.target, event);
     }
   }, true);
 
@@ -563,7 +572,7 @@ function injectFrameTools() {
     if (event.target.closest(".collab-marker, .collab-popover")) return;
     event.preventDefault();
     event.stopPropagation();
-    selectElement(event.target);
+    selectElement(event.target, event);
     openComposerFromFrameEvent(event);
   }, true);
 
@@ -571,30 +580,63 @@ function injectFrameTools() {
     if (event.target.closest(".collab-marker, .collab-popover")) return;
     event.preventDefault();
     event.stopPropagation();
-    startInlineEdit(event.target);
+    startInlineEdit(event.target, event);
   }, true);
   doc.addEventListener("keydown", handleFrameKeydown, true);
   doc.addEventListener("copy", handleCopyEvent, true);
   doc.addEventListener("paste", handlePasteEvent, true);
 }
 
-function getReviewElement(target) {
+function getReviewElement(target, point) {
+  const element = getBaseReviewElement(target);
+  if (!element) return null;
+  if (!isObviousPageWrapper(element)) return element;
+  return getChildReviewElementAtPoint(element, point) || element;
+}
+
+function getBaseReviewElement(target) {
   const doc = preview.contentDocument;
+  if (!target || typeof target.closest !== "function") return null;
   const element = target.closest("body *:not(.collab-marker):not(.collab-pointer):not(.collab-popover):not(.collab-popover *)");
-  if (!element || element === doc.body || element === doc.documentElement || !doc.body.contains(element)) return null;
+  if (!isSelectableReviewElement(element, doc)) return null;
   return element;
 }
 
-function selectElement(target) {
-  const element = getReviewElement(target);
+function isSelectableReviewElement(element, doc = preview.contentDocument) {
+  return Boolean(
+    element
+      && element !== doc?.body
+      && element !== doc?.documentElement
+      && doc?.body?.contains(element)
+      && !element.closest(".collab-marker, .collab-marker-layer, .collab-pointer, .collab-popover, script, style"),
+  );
+}
+
+function getChildReviewElementAtPoint(container, point) {
+  const doc = preview.contentDocument;
+  if (!doc || !point) return null;
+
+  const fromPoint = doc.elementsFromPoint(point.clientX, point.clientY)
+    .map((element) => getBaseReviewElement(element))
+    .filter((element) => element && element !== container && container.contains(element) && !isObviousPageWrapper(element));
+  if (fromPoint.length) return fromPoint[0];
+
+  return Array.from(container.querySelectorAll("*"))
+    .filter((element) => isSelectableReviewElement(element, doc))
+    .filter((element) => !isObviousPageWrapper(element) && containsPoint(element, point))
+    .sort((a, b) => elementArea(a) - elementArea(b))[0] || null;
+}
+
+function selectElement(target, point) {
+  const element = getReviewElement(target, point);
   if (!element) return null;
 
   setSelectedElements([element]);
   return selectedElement;
 }
 
-function toggleSelectedElement(target) {
-  const element = getReviewElement(target);
+function toggleSelectedElement(target, point) {
+  const element = getReviewElement(target, point);
   if (!element) return null;
   if (selectedElements.includes(element)) {
     setSelectedElements(selectedElements.filter((item) => item !== element));
@@ -606,10 +648,13 @@ function toggleSelectedElement(target) {
 
 function setSelectedElements(elements) {
   selectedElements.forEach((element) => {
-    if (element.isConnected) element.classList.remove("collab-selected");
+    if (element.isConnected) element.classList.remove("collab-selected", "collab-selected-large");
   });
   selectedElements = Array.from(new Set(elements)).filter(Boolean);
-  selectedElements.forEach((element) => element.classList.add("collab-selected"));
+  selectedElements.forEach((element) => {
+    element.classList.add("collab-selected");
+    element.classList.toggle("collab-selected-large", isHugeSelectedElement(element));
+  });
   selectedElement = selectedElements[selectedElements.length - 1] || null;
 }
 
@@ -657,6 +702,7 @@ function getElementsInRect(rect) {
   return Array.from(doc.body.querySelectorAll("*"))
     .filter((element) => element !== doc.body && element !== doc.documentElement)
     .filter((element) => !element.closest(".collab-marker, .collab-marker-layer, .collab-pointer, .collab-popover, script, style"))
+    .filter((element) => !isObviousPageWrapper(element))
     .filter((element) => {
       const bounds = element.getBoundingClientRect();
       return bounds.width > 0
@@ -666,6 +712,45 @@ function getElementsInRect(rect) {
         && bounds.top < rect.bottom
         && bounds.bottom > rect.top;
     });
+}
+
+function isObviousPageWrapper(element) {
+  const doc = preview.contentDocument;
+  if (!doc?.body || element?.parentElement !== doc.body) return false;
+
+  const bounds = element.getBoundingClientRect();
+  const documentSize = getDocumentSize();
+  const viewportWidth = doc.defaultView.innerWidth;
+  const viewportHeight = doc.defaultView.innerHeight;
+  const descendantCount = element.querySelectorAll("*").length;
+  const coversViewport = bounds.width >= viewportWidth * 0.9 && bounds.height >= viewportHeight * 0.8;
+  const coversDocument = bounds.width >= documentSize.width * 0.9 && bounds.height >= Math.min(documentSize.height, viewportHeight) * 0.8;
+
+  return descendantCount >= 3 && (coversViewport || coversDocument);
+}
+
+function isHugeSelectedElement(element) {
+  const doc = preview.contentDocument;
+  if (!doc) return false;
+
+  const bounds = element.getBoundingClientRect();
+  return isObviousPageWrapper(element)
+    || (bounds.width >= doc.defaultView.innerWidth * 0.85 && bounds.height >= doc.defaultView.innerHeight * 0.65);
+}
+
+function containsPoint(element, point) {
+  const bounds = element.getBoundingClientRect();
+  return bounds.width > 0
+    && bounds.height > 0
+    && point.clientX >= bounds.left
+    && point.clientX <= bounds.right
+    && point.clientY >= bounds.top
+    && point.clientY <= bounds.bottom;
+}
+
+function elementArea(element) {
+  const bounds = element.getBoundingClientRect();
+  return bounds.width * bounds.height;
 }
 
 function handleFrameKeydown(event) {
@@ -730,21 +815,8 @@ function handleKeyboardShortcut(event) {
   }
 
   if (event.key === "Delete" || event.key === "Backspace") {
-    if (!selectedElements.length) return;
     event.preventDefault();
-    const edit = {
-      type: "deleteMany",
-      items: selectedElements.map((element) => ({
-        path: getElementPath(element),
-        html: cleanElementHtml(element),
-      })),
-    };
-    undoAction = {
-      type: "insertAt",
-      items: edit.items.map((item) => ({ path: item.path.slice(), html: item.html })),
-    };
-    applyEdit(edit);
-    postEdit(edit);
+    deleteSelectedElements();
   }
 }
 
@@ -818,8 +890,42 @@ function pasteCopiedElements() {
   postEdit(edit);
 }
 
-function startInlineEdit(target) {
-  const element = selectElement(target);
+function deleteSelectedElements() {
+  const items = selectedElements
+    .filter((element) => element?.isConnected)
+    .filter((element, _index, elements) => !elements.some((other) => other !== element && other.contains(element)))
+    .map((element) => ({
+      path: getElementPath(element),
+      html: cleanElementHtml(element),
+    }))
+    .filter((item) => item.path.length && item.html)
+    .sort((a, b) => comparePathsAscending(a.path, b.path));
+
+  if (!items.length) {
+    setSelectedElements([]);
+    showToast("Select an element before deleting");
+    return;
+  }
+
+  const edit = {
+    type: "deleteMany",
+    items,
+  };
+  undoAction = {
+    type: "insertAt",
+    items: items.map((item) => ({ path: item.path.slice(), html: item.html })),
+  };
+  applyEdit(edit);
+  postEdit(edit);
+  showToast(items.length === 1 ? "Element deleted" : "Elements deleted");
+}
+
+function comparePathsAscending(pathA = [], pathB = []) {
+  return -comparePathsDescending(pathA, pathB);
+}
+
+function startInlineEdit(target, point) {
+  const element = selectElement(target, point);
   if (!element) return;
 
   const original = element.textContent;
@@ -982,7 +1088,7 @@ function htmlsToElements(htmls) {
     template.innerHTML = html.trim();
     const element = template.content.firstElementChild;
     if (!element) return null;
-    element.classList.remove("collab-selected", "collab-editing");
+    element.classList.remove("collab-selected", "collab-selected-large", "collab-editing");
     element.removeAttribute("contenteditable");
     return element;
   }).filter(Boolean);
@@ -990,11 +1096,11 @@ function htmlsToElements(htmls) {
 
 function cleanElementHtml(element) {
   const clone = element.cloneNode(true);
-  clone.classList.remove("collab-selected", "collab-editing");
+  clone.classList.remove("collab-selected", "collab-selected-large", "collab-editing");
   clone.removeAttribute("contenteditable");
   if (!clone.getAttribute("class")) clone.removeAttribute("class");
-  clone.querySelectorAll(".collab-selected, .collab-editing").forEach((node) => {
-    node.classList.remove("collab-selected", "collab-editing");
+  clone.querySelectorAll(".collab-selected, .collab-selected-large, .collab-editing").forEach((node) => {
+    node.classList.remove("collab-selected", "collab-selected-large", "collab-editing");
     node.removeAttribute("contenteditable");
     if (!node.getAttribute("class")) node.removeAttribute("class");
   });
@@ -1432,8 +1538,8 @@ function downloadCurrentHtml() {
   const clone = doc.documentElement.cloneNode(true);
   clone.querySelector("#collab-style")?.remove();
   clone.querySelectorAll(".collab-marker-layer, .collab-pointer, .collab-popover, .collab-drag-box, .collab-comment-cursor").forEach((node) => node.remove());
-  clone.querySelectorAll(".collab-selected, .collab-editing").forEach((node) => {
-    node.classList.remove("collab-selected", "collab-editing");
+  clone.querySelectorAll(".collab-selected, .collab-selected-large, .collab-editing").forEach((node) => {
+    node.classList.remove("collab-selected", "collab-selected-large", "collab-editing");
     node.removeAttribute("contenteditable");
     if (!node.getAttribute("class")) {
       node.removeAttribute("class");
@@ -1445,12 +1551,33 @@ function downloadCurrentHtml() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `html-collab-${roomId}.html`;
+  link.download = editedFileName(currentFileName);
   document.body.appendChild(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
   showToast("HTML saved");
+}
+
+function editedFileName(fileName) {
+  const fallback = `html-collab-${roomId}.html`;
+  const safeName = cleanFileName(fileName);
+  if (!safeName) return fallback;
+
+  const match = safeName.match(/^(.*?)(\.[^.]+)?$/);
+  const baseName = (match?.[1] || safeName).replace(/-edited$/i, "") || "html";
+  const extension = match?.[2] || ".html";
+  return `${baseName}-edited${extension}`;
+}
+
+function cleanFileName(fileName) {
+  return String(fileName || "")
+    .split(/[\\/]/)
+    .pop()
+    .replace(/[^\w.\- ]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180);
 }
 
 function restorePanelWidth() {
