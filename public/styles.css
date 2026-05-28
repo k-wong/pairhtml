@@ -65,6 +65,17 @@ button:active,
   transform: scale(0.98);
 }
 
+button:disabled,
+.upload-button:has(input:disabled) {
+  cursor: progress;
+  opacity: 0.72;
+}
+
+.upload-button.is-loading {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
 #copyLinkButton,
 #saveButton {
   background: var(--accent);

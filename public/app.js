@@ -3,6 +3,7 @@ const clientId = getClientId();
 const clientColor = getClientColor();
 const minPanelWidth = 260;
 const maxPanelWidth = 640;
+const maxUploadBytes = 2 * 1024 * 1024;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 let userName = localStorage.getItem("html-collab-name") || "";
@@ -30,6 +31,7 @@ const workspace = document.querySelector(".workspace");
 const preview = document.querySelector("#preview");
 const emptyState = document.querySelector("#emptyState");
 const fileInput = document.querySelector("#fileInput");
+const uploadLabel = document.querySelector("#uploadLabel");
 const copyLinkButton = document.querySelector("#copyLinkButton");
 const saveButton = document.querySelector("#saveButton");
 const copyToast = document.querySelector("#copyToast");
@@ -54,13 +56,40 @@ roomLabel.textContent = `Room ${roomId}`;
 restorePanelWidth();
 connectEvents();
 
-fileInput.addEventListener("change", async () => {
+fileInput.addEventListener("click", () => {
+  fileInput.value = "";
+});
+
+fileInput.addEventListener("change", uploadHtmlFile);
+
+async function uploadHtmlFile() {
   const file = fileInput.files[0];
   if (!file) return;
 
-  const html = await file.text();
-  await postJson(`/api/rooms/${roomId}/html`, { html: sanitizeHtml(html) });
-});
+  if (file.size > maxUploadBytes) {
+    showToast("HTML file must be under 2 MB");
+    fileInput.value = "";
+    return;
+  }
+
+  setUploadState(true);
+  try {
+    const html = await file.text();
+    const sanitized = sanitizeHtml(html);
+    await postJson(`/api/rooms/${roomId}/html`, { html: sanitized });
+    currentHtml = sanitized;
+    comments = [];
+    edits = [];
+    renderFrame();
+    renderComments();
+    showToast("HTML uploaded");
+  } catch (error) {
+    showToast(error.message || "Upload failed");
+  } finally {
+    setUploadState(false);
+    fileInput.value = "";
+  }
+}
 
 copyLinkButton.addEventListener("click", async () => {
   await navigator.clipboard.writeText(window.location.href);
@@ -1379,7 +1408,14 @@ function showToast(message) {
   clearTimeout(copyToast.hideTimer);
   copyToast.hideTimer = setTimeout(() => {
     copyToast.classList.remove("visible");
-  }, 1500);
+  }, Math.max(1500, Math.min(4200, String(message).length * 80)));
+}
+
+function setUploadState(isUploading) {
+  fileInput.disabled = isUploading;
+  fileInput.closest(".upload-button")?.classList.toggle("is-loading", isUploading);
+  fileInput.closest(".upload-button")?.setAttribute("aria-busy", String(isUploading));
+  uploadLabel.textContent = isUploading ? "Uploading..." : "Upload HTML";
 }
 
 function downloadCurrentHtml() {
@@ -1508,10 +1544,19 @@ async function postJson(url, body) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+  const text = await response.text();
+  let data = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = {};
+    }
   }
-  return response.json();
+  if (!response.ok) {
+    throw new Error(data.error || `Request failed: ${response.status}`);
+  }
+  return data;
 }
 
 function initials(name) {
