@@ -548,6 +548,21 @@ body.resizing-comments .panel-resize-handle::before {
   color: var(--muted);
 }
 
+.help-credit {
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.help-credit a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 @media (max-width: 900px) {
   .app-bar {
     height: auto;

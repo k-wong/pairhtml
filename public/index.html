@@ -3,13 +3,33 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>PAIRHTML | Collaborate on HTML files</title>
+    <title>PairHTML | Easily collaborate on HTML files</title>
+    <meta name="description" content="PairHTML is a lightweight collaboration tool for uploading, reviewing, editing, and commenting on HTML files with shareable rooms that expire after 24 hours.">
+    <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#f5f5f7">
+    <link rel="canonical" href="https://pairhtml.com/">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="PairHTML">
+    <meta property="og:title" content="PairHTML | Easily collaborate on HTML files">
+    <meta property="og:description" content="Upload an HTML file, invite collaborators, leave comments, make edits, and save the reviewed file. Rooms expire after 24 hours.">
+    <meta property="og:url" content="https://pairhtml.com/">
+    <meta property="og:image" content="https://pairhtml.com/opengraph.png">
+    <meta property="og:image:secure_url" content="https://pairhtml.com/opengraph.png">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="PairHTML collaborative HTML review workspace">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="PairHTML | Easily collaborate on HTML files">
+    <meta name="twitter:description" content="Upload an HTML file, invite collaborators, leave comments, make edits, and save the reviewed file. Rooms expire after 24 hours.">
+    <meta name="twitter:image" content="https://pairhtml.com/opengraph.png">
+    <meta name="twitter:image:alt" content="PairHTML collaborative HTML review workspace">
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <header class="app-bar">
       <div>
-        <h1>PAIRHTML | Collaborate on HTML files</h1>
+        <h1>PairHTML | Easily collaborate on HTML files</h1>
         <p id="roomLabel">Room loading...</p>
       </div>
       <div class="toolbar">
@@ -28,7 +48,7 @@
         <iframe id="preview" title="Uploaded HTML preview" scrolling="yes"></iframe>
         <div id="emptyState" class="empty-state">
           <strong>Upload an HTML file to start reviewing.</strong>
-          <span>Share the room link after upload so others can join the same file.</span>
+          <span>Share the room link after upload so others can join the same file. Rooms expire and files are deleted in 24hrs.</span>
         </div>
       </section>
 
@@ -76,6 +96,7 @@
         <dt>Cmd/Ctrl + Z</dt><dd>Undo last action</dd>
         <dt>Esc</dt><dd>Close popup</dd>
       </dl>
+      <p class="help-credit">Made by <a href="https://www.kevinhwong.com" target="_blank" rel="noopener noreferrer">Kevin Wong</a></p>
     </section>
 
     <template id="commentTemplate">
