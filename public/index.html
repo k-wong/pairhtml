@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PAIRHTML | Collaborate on HTML files</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="app-bar">
+      <div>
+        <h1>PAIRHTML | Collaborate on HTML files</h1>
+        <p id="roomLabel">Room loading...</p>
+      </div>
+      <div class="toolbar">
+        <div id="presence" class="presence" aria-label="People in room"></div>
+        <label class="upload-button">
+          <input id="fileInput" type="file" accept=".html,text/html">
+          Upload HTML
+        </label>
+        <button id="copyLinkButton" type="button">Invite</button>
+        <button id="saveButton" type="button">Save</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="review-surface" aria-label="HTML review surface">
+        <iframe id="preview" title="Uploaded HTML preview" scrolling="yes"></iframe>
+        <div id="emptyState" class="empty-state">
+          <strong>Upload an HTML file to start reviewing.</strong>
+          <span>Share the room link after upload so others can join the same file.</span>
+        </div>
+      </section>
+
+      <aside class="comments-panel" aria-label="Comments">
+        <div id="panelResizeHandle" class="panel-resize-handle" aria-hidden="true"></div>
+        <div class="panel-header">
+          <h2>Comments</h2>
+          <div class="panel-actions">
+            <span id="commentCount">0</span>
+            <button id="togglePanelButton" class="icon-button" type="button" aria-label="Hide comments panel" title="Hide comments panel">›</button>
+          </div>
+        </div>
+        <div id="commentsList" class="comments-list"></div>
+      </aside>
+      <button id="showPanelButton" class="show-panel-button hidden" type="button" aria-label="Show comments panel" title="Show comments panel">‹</button>
+    </main>
+
+    <form id="composer" class="composer hidden">
+      <button id="cancelCommentButton" class="composer-close" type="button" aria-label="Close comment popup" title="Close">×</button>
+      <input id="nameInput" type="email" autocomplete="email" maxlength="120" placeholder="Email">
+      <textarea id="commentInput" rows="1" maxlength="5000" placeholder="Comment"></textarea>
+      <div class="composer-actions">
+        <button id="submitCommentButton" type="button" aria-label="Post comment" title="Post comment">↑</button>
+      </div>
+    </form>
+
+    <div id="copyToast" class="copy-toast" role="status" aria-live="polite">Room link copied</div>
+    <button id="helpButton" class="help-button" type="button" aria-label="Show controls" title="Show controls">?</button>
+    <section id="helpPanel" class="help-panel hidden" aria-label="Mouse and keyboard controls">
+      <div class="help-header">
+        <h2>Controls</h2>
+        <button id="helpCloseButton" class="icon-button" type="button" aria-label="Close controls" title="Close controls">×</button>
+      </div>
+      <dl>
+        <dt>Click</dt><dd>Select an element</dd>
+        <dt>Shift + Click</dt><dd>Add or remove an element from selection</dd>
+        <dt>Drag</dt><dd>Select multiple elements</dd>
+        <dt>Double Click</dt><dd>Edit text</dd>
+        <dt>Right Click</dt><dd>Leave a comment</dd>
+        <dt>C</dt><dd>Enter comment mode</dd>
+        <dt>V</dt><dd>Enter select mode</dd>
+        <dt>Delete</dt><dd>Delete selected elements</dd>
+        <dt>Cmd/Ctrl + C</dt><dd>Copy selected elements</dd>
+        <dt>Cmd/Ctrl + V</dt><dd>Paste after selected element</dd>
+        <dt>Cmd/Ctrl + Z</dt><dd>Undo last action</dd>
+        <dt>Esc</dt><dd>Close popup</dd>
+      </dl>
+    </section>
+
+    <template id="commentTemplate">
+      <article class="comment">
+        <div class="comment-meta"></div>
+        <p class="comment-text"></p>
+      </article>
+    </template>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
