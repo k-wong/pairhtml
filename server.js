@@ -7,6 +7,9 @@ const port = process.env.PORT || 3000;
 const host = process.env.HOST || "127.0.0.1";
 const publicDir = path.join(__dirname, "public");
 const rooms = new Map();
+const trackedUsers = new Map();
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const roomTtlMs = 24 * 60 * 60 * 1000;
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -24,9 +27,15 @@ function getRoom(id) {
       comments: [],
       edits: [],
       clients: new Map(),
+      expiresAt: null,
+      expirationTimer: null,
     });
   }
-  return rooms.get(id);
+  const room = rooms.get(id);
+  if (isExpired(room)) {
+    resetRoom(room);
+  }
+  return room;
 }
 
 function sendJson(res, status, body) {
@@ -64,6 +73,62 @@ function roomPresence(room) {
     name,
     color,
   }));
+}
+
+function normalizeEmail(value) {
+  const email = String(value || "").trim().toLowerCase();
+  return emailPattern.test(email) ? email : "";
+}
+
+function trackCommentEmail(email) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return;
+
+  const now = new Date().toISOString();
+  const existing = trackedUsers.get(normalized);
+  trackedUsers.set(normalized, {
+    createdAt: existing?.createdAt || now,
+    lastSeen: now,
+  });
+}
+
+function hasRoomContent(room) {
+  return Boolean(room.html || room.comments.length || room.edits.length);
+}
+
+function isExpired(room) {
+  return Boolean(room.expiresAt && Date.now() >= new Date(room.expiresAt).getTime());
+}
+
+function resetRoom(room) {
+  room.html = "";
+  room.comments = [];
+  room.edits = [];
+  room.expiresAt = null;
+  if (room.expirationTimer) {
+    clearTimeout(room.expirationTimer);
+    room.expirationTimer = null;
+  }
+}
+
+function ensureRoomExpiration(room) {
+  if (!hasRoomContent(room) || room.expiresAt) return;
+  room.expiresAt = new Date(Date.now() + roomTtlMs).toISOString();
+  scheduleRoomExpiration(room);
+}
+
+function scheduleRoomExpiration(room) {
+  if (room.expirationTimer) {
+    clearTimeout(room.expirationTimer);
+    room.expirationTimer = null;
+  }
+  if (!room.expiresAt) return;
+
+  const delay = Math.max(0, new Date(room.expiresAt).getTime() - Date.now());
+  room.expirationTimer = setTimeout(() => {
+    resetRoom(room);
+    broadcast(room, "html", { html: "", comments: [], edits: [] });
+  }, delay);
 }
 
 function emit(client, event, data) {
@@ -158,22 +223,27 @@ const server = http.createServer(async (req, res) => {
         room.html = String(body.html || "");
         room.comments = [];
         room.edits = [];
+        room.expiresAt = new Date(Date.now() + roomTtlMs).toISOString();
+        scheduleRoomExpiration(room);
         broadcast(room, "html", { html: room.html, comments: [], edits: [] });
         sendJson(res, 200, { ok: true });
         return;
       }
 
       if (action === "comment") {
+        const author = String(body.author || "Anonymous").slice(0, 120);
         const comment = {
           id: body.id || crypto.randomUUID(),
           parentId: body.parentId || null,
           x: Number(body.x) || 0,
           y: Number(body.y) || 0,
-          author: String(body.author || "Anonymous").slice(0, 80),
+          author,
           text: String(body.text || "").slice(0, 5000),
           createdAt: body.createdAt || new Date().toISOString(),
         };
+        trackCommentEmail(comment.author);
         room.comments.push(comment);
+        ensureRoomExpiration(room);
         broadcast(room, "comment", comment);
         sendJson(res, 200, { ok: true, comment });
         return;
@@ -186,6 +256,7 @@ const server = http.createServer(async (req, res) => {
             comment.resolved = true;
           }
         });
+        ensureRoomExpiration(room);
         broadcast(room, "resolve-comment", { id: commentId });
         sendJson(res, 200, { ok: true });
         return;
@@ -209,6 +280,7 @@ const server = http.createServer(async (req, res) => {
           createdAt: body.createdAt || new Date().toISOString(),
         };
         room.edits.push(edit);
+        ensureRoomExpiration(room);
         broadcast(room, "edit", edit, body.clientId);
         sendJson(res, 200, { ok: true, edit });
         return;

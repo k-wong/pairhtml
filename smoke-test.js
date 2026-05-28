@@ -111,11 +111,11 @@ const sampleHtml = `<!doctype html>
       y: paragraphBox.y + 10,
     };
     await frameA.locator("p").first().click({ button: "right", position: { x: 20, y: 10 } });
-    await pageA.locator("#nameInput[placeholder='Name']").waitFor();
+    await pageA.locator("#nameInput[placeholder='Email']").waitFor();
     await pageA.locator("#commentInput[placeholder='Comment']").waitFor();
-    await pageA.locator("#nameInput").fill("Ada");
+    await pageA.locator("#nameInput").fill("ada@example.com");
     await pageA.locator("#commentInput").fill("Please tighten this copy.");
-    await pageA.locator(".composer-actions button[type='submit']").click();
+    await pageA.locator("#submitCommentButton").click();
     await pageB.waitForFunction(() => document.querySelector("#commentCount")?.textContent === "1");
     await frameA.locator(".collab-marker").waitFor();
     const markerBox = await frameA.locator(".collab-marker").boundingBox();

@@ -3,8 +3,13 @@ const clientId = getClientId();
 const clientColor = getClientColor();
 const minPanelWidth = 260;
 const maxPanelWidth = 640;
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 let userName = localStorage.getItem("html-collab-name") || "";
+if (userName && !isValidEmail(userName)) {
+  userName = "";
+  localStorage.removeItem("html-collab-name");
+}
 let currentHtml = "";
 let comments = [];
 let edits = [];
@@ -82,6 +87,9 @@ composer.addEventListener("submit", async (event) => {
 });
 
 submitCommentButton.addEventListener("click", submitComment);
+nameInput.addEventListener("input", () => {
+  nameInput.setCustomValidity("");
+});
 commentInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
@@ -92,7 +100,8 @@ commentInput.addEventListener("keydown", (event) => {
 async function submitComment() {
   if (!pendingComment) return;
 
-  const author = getStoredName();
+  const author = getStoredEmail();
+  if (!author) return;
   const text = commentInput.value.trim();
   if (!text) return;
 
@@ -278,7 +287,7 @@ function injectFrameTools() {
       display: grid;
       place-items: center;
       font: 700 10px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
-      transform: translate(50%, -50%) rotate(-45deg);
+      transform: translate(-50%, -50%) rotate(-45deg);
       cursor: pointer;
       pointer-events: auto;
       transition: transform 140ms ease, box-shadow 140ms ease;
@@ -297,8 +306,8 @@ function injectFrameTools() {
       box-shadow: 0 0 0 8px rgba(0, 113, 227, .16), 0 8px 22px rgba(0, 0, 0, .22);
     }
     @keyframes collab-marker-pulse {
-      0%, 100% { transform: translate(50%, -50%) rotate(-45deg) scale(1); }
-      50% { transform: translate(50%, -50%) rotate(-45deg) scale(1.18); }
+      0%, 100% { transform: translate(-50%, -50%) rotate(-45deg) scale(1); }
+      50% { transform: translate(-50%, -50%) rotate(-45deg) scale(1.18); }
     }
     .collab-pointer {
       position: fixed;
@@ -1012,8 +1021,11 @@ function postEdit(edit) {
     clientId,
     type: edit.type || "text",
     path: edit.path,
+    paths: edit.paths,
     targetPath: edit.targetPath,
+    items: edit.items,
     html: edit.html,
+    htmls: edit.htmls,
     text: edit.text || "",
     author: getStoredName(),
     createdAt: new Date().toISOString(),
@@ -1146,12 +1158,13 @@ function openCommentPopover(id) {
   const send = () => {
     const text = input.value.trim();
     if (!text) return;
+    const author = userName || "Anonymous";
     const reply = {
       id: crypto.randomUUID(),
       parentId: id,
       x: root.x,
       y: root.y,
-      author: userName || "Anonymous",
+      author,
       text,
       createdAt: new Date().toISOString(),
     };
@@ -1307,6 +1320,7 @@ function openComposer(x, y, clientX, clientY, parentId) {
   pendingComment = { x, y, parentId };
   nameInput.value = userName;
   nameInput.hidden = Boolean(userName);
+  nameInput.setCustomValidity("");
   commentInput.value = "";
   composer.classList.remove("hidden");
   autosizeTextarea(commentInput);
@@ -1449,13 +1463,28 @@ function showCommentsPanel() {
   requestAnimationFrame(renderCommentMarkers);
 }
 
-function getStoredName() {
+function getStoredEmail() {
   if (!userName) {
-    userName = nameInput.value.trim() || "anonymous@example.com";
+    const email = nameInput.value.trim().toLowerCase();
+    if (!isValidEmail(email)) {
+      nameInput.setCustomValidity("Enter a valid email address.");
+      nameInput.reportValidity();
+      return "";
+    }
+    nameInput.setCustomValidity("");
+    userName = email;
     localStorage.setItem("html-collab-name", userName);
     postJson(`/api/rooms/${roomId}/presence`, { clientId, name: userName, color: clientColor });
   }
   return userName;
+}
+
+function getStoredName() {
+  return userName || "Anonymous";
+}
+
+function isValidEmail(value) {
+  return emailPattern.test(String(value || "").trim());
 }
 
 function schedulePointerSend() {
