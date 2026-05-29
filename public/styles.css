@@ -384,7 +384,7 @@ body.resizing-comments .panel-resize-handle::before {
 
 .composer-close {
   position: absolute;
-  top: -12px;
+  top: -14px;
   right: -12px;
   border: 0;
   background: rgba(58, 58, 60, 0.96);
@@ -416,8 +416,7 @@ body.resizing-comments .panel-resize-handle::before {
 }
 
 .composer input {
-  margin-right: 32px;
-  width: calc(100% - 36px);
+  width: 100%;
 }
 
 .composer textarea {
@@ -425,6 +424,15 @@ body.resizing-comments .panel-resize-handle::before {
   min-height: 44px;
   max-height: 140px;
   padding-right: 54px;
+}
+
+.composer.composer-single-field {
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.composer.composer-single-field textarea {
+  margin-top: 0;
 }
 
 .composer input:focus,
@@ -435,7 +443,7 @@ body.resizing-comments .panel-resize-handle::before {
 .composer-actions {
   position: absolute;
   right: 22px;
-  bottom: 22px;
+  bottom: 20px;
   display: flex;
   z-index: 2;
 }

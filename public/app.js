@@ -5,6 +5,7 @@ const minPanelWidth = 260;
 const maxPanelWidth = 640;
 const maxUploadBytes = 2 * 1024 * 1024;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const composerOffset = { x: 20, y: 5 };
 
 let userName = localStorage.getItem("html-collab-name") || "";
 if (userName && !isValidEmail(userName)) {
@@ -424,10 +425,14 @@ function injectFrameTools() {
       overflow: visible;
       font: 15px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
     }
+    .collab-popover,
+    .collab-popover * {
+      box-sizing: border-box;
+    }
     .collab-popover-actions {
       position: absolute;
       right: -12px;
-      top: -12px;
+      top: -14px;
       z-index: 2;
       display: flex;
       align-items: center;
@@ -460,21 +465,7 @@ function injectFrameTools() {
     }
     .collab-message,
     .collab-reply-row {
-      display: grid;
-      grid-template-columns: 40px 1fr;
-      gap: 10px;
-      align-items: start;
-    }
-    .collab-avatar {
-      width: 34px;
-      height: 34px;
-      border-radius: 50%;
-      display: grid;
-      place-items: center;
-      background: #34c759;
-      color: #fff;
-      font-size: 17px;
-      font-weight: 600;
+      min-width: 0;
     }
     .collab-message-meta {
       display: flex;
@@ -494,13 +485,13 @@ function injectFrameTools() {
       display: block;
       width: 100%;
       min-width: 0;
-      min-height: 42px;
+      min-height: 44px;
       max-height: 132px;
       border: 0;
-      border-radius: 21px;
+      border-radius: 22px;
       background: rgba(255, 255, 255, .12);
       color: #fff;
-      padding: 11px 50px 11px 16px;
+      padding: 12px 50px 12px 16px;
       font: inherit;
       line-height: 20px;
       outline: none;
@@ -512,14 +503,37 @@ function injectFrameTools() {
     }
     .collab-reply-box:focus {
       outline: 3px solid rgba(0, 113, 227, .32);
+      outline-offset: -3px;
     }
     .collab-reply-wrap {
       position: relative;
     }
+    .collab-reply-email {
+      display: block;
+      width: 100%;
+      min-width: 0;
+      min-height: 44px;
+      border: 0;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, .12);
+      color: #fff;
+      padding: 12px 16px;
+      margin-bottom: 8px;
+      font: inherit;
+      line-height: 20px;
+      outline: none;
+    }
+    .collab-reply-email::placeholder {
+      color: #a3a3a3;
+    }
+    .collab-reply-email:focus {
+      outline: 3px solid rgba(0, 113, 227, .32);
+      outline-offset: -3px;
+    }
     .collab-reply-send {
       position: absolute;
       right: 8px;
-      bottom: 5px;
+      bottom: 3px;
       background: rgba(255, 255, 255, .28);
       font-size: 20px;
       font-weight: 600;
@@ -837,11 +851,13 @@ function positionCommentModeCursor(clientX, clientY) {
 function openComposerFromFrameEvent(event) {
   const rect = preview.getBoundingClientRect();
   const size = getDocumentSize();
+  const pageX = event.pageX + composerOffset.x;
+  const pageY = event.pageY + composerOffset.y;
   openComposer(
-    event.pageX / size.width,
-    event.pageY / size.height,
-    rect.left + event.clientX,
-    rect.top + event.clientY,
+    pageX / size.width,
+    pageY / size.height,
+    rect.left + event.clientX + composerOffset.x,
+    rect.top + event.clientY + composerOffset.y,
     null,
   );
 }
@@ -1253,6 +1269,7 @@ function openCommentPopover(id) {
   const thread = [root, ...comments.filter((comment) => comment.parentId === id && !comment.resolved)];
   const marker = doc.querySelector(`.collab-marker[data-comment-id="${CSS.escape(id)}"]`);
   const markerRect = marker?.getBoundingClientRect() || { left: 24, top: 24, right: 24 };
+  const submitLabel = submitCommentButton.textContent.trim() || "↑";
   const popover = doc.createElement("div");
   popover.className = "collab-popover";
   popover.dataset.commentPopover = id;
@@ -1264,10 +1281,9 @@ function openCommentPopover(id) {
     <div class="collab-thread">
       ${thread.map((comment) => `
         <div class="collab-message">
-          <div class="collab-avatar">${escapeHtml(initials(comment.author))}</div>
           <div>
             <div class="collab-message-meta">
-              <span>${escapeHtml(comment.author)}</span>
+              <span>${escapeHtml(formatAuthorName(comment.author))}</span>
               <span class="collab-message-time">${formatTime(comment.createdAt)}</span>
             </div>
             <div class="collab-message-text">${escapeHtml(comment.text)}</div>
@@ -1275,10 +1291,10 @@ function openCommentPopover(id) {
         </div>
       `).join("")}
       <div class="collab-reply-row">
-        <div class="collab-avatar">${escapeHtml(initials(userName || "A"))}</div>
         <div class="collab-reply-wrap">
+          ${userName ? "" : `<input class="collab-reply-email" type="email" autocomplete="email" maxlength="120" placeholder="Email" pattern="^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" required>`}
           <textarea class="collab-reply-box" rows="1" placeholder="Reply"></textarea>
-          <button type="button" class="collab-reply-send" aria-label="Send reply">↑</button>
+          <button type="button" class="collab-reply-send" aria-label="Send reply">${escapeHtml(submitLabel)}</button>
         </div>
       </div>
     </div>
@@ -1288,12 +1304,14 @@ function openCommentPopover(id) {
 
   popover.querySelector(".collab-close").addEventListener("click", closeCommentPopover);
   popover.querySelector(".collab-resolve").addEventListener("click", () => resolveComment(id));
+  const emailInput = popover.querySelector(".collab-reply-email");
   const input = popover.querySelector(".collab-reply-box");
   autosizeTextarea(input);
   const send = () => {
     const text = input.value.trim();
     if (!text) return;
-    const author = userName || "Anonymous";
+    const author = getStoredEmail(emailInput);
+    if (!author) return;
     const reply = {
       id: crypto.randomUUID(),
       parentId: id,
@@ -1309,6 +1327,9 @@ function openCommentPopover(id) {
     postJson(`/api/rooms/${roomId}/comment`, reply);
   };
   popover.querySelector(".collab-reply-send").addEventListener("click", send);
+  emailInput?.addEventListener("input", () => {
+    emailInput.setCustomValidity("");
+  });
   input.addEventListener("input", () => autosizeTextarea(input));
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -1316,7 +1337,7 @@ function openCommentPopover(id) {
       send();
     }
   });
-  input.focus();
+  (emailInput || input).focus();
 }
 
 function placeFloatingPanel(panel, anchorRect) {
@@ -1420,8 +1441,8 @@ function renderComments() {
     node.id = `comment-${comment.id}`;
     node.dataset.commentId = comment.id;
     const replies = comments.filter((reply) => reply.parentId === comment.id && !reply.resolved);
-    node.querySelector(".comment-meta").textContent = `#${index + 1} ${comment.author} · ${formatTime(comment.createdAt)}${replies.length ? ` · ${replies.length} ${replies.length === 1 ? "reply" : "replies"}` : ""}`;
-    node.querySelector(".comment-text").innerHTML = `${escapeHtml(comment.text)}${replies.map((reply) => `<span class="comment-reply"><span class="comment-reply-meta">${escapeHtml(reply.author)} · ${formatTime(reply.createdAt)}</span><span>${escapeHtml(reply.text).replaceAll("\n", "<br>")}</span></span>`).join("")}`;
+    node.querySelector(".comment-meta").textContent = `#${index + 1} ${formatAuthorName(comment.author)} · ${formatTime(comment.createdAt)}${replies.length ? ` · ${replies.length} ${replies.length === 1 ? "reply" : "replies"}` : ""}`;
+    node.querySelector(".comment-text").innerHTML = `${escapeHtml(comment.text)}${replies.map((reply) => `<span class="comment-reply"><span class="comment-reply-meta">${escapeHtml(formatAuthorName(reply.author))} · ${formatTime(reply.createdAt)}</span><span>${escapeHtml(reply.text).replaceAll("\n", "<br>")}</span></span>`).join("")}`;
     node.addEventListener("mouseenter", () => highlightCommentMarker(comment.id));
     node.addEventListener("click", () => {
       highlightCommentMarker(comment.id);
@@ -1455,6 +1476,7 @@ function openComposer(x, y, clientX, clientY, parentId) {
   pendingComment = { x, y, parentId };
   nameInput.value = userName;
   nameInput.hidden = Boolean(userName);
+  composer.classList.toggle("composer-single-field", Boolean(userName));
   nameInput.setCustomValidity("");
   commentInput.value = "";
   composer.classList.remove("hidden");
@@ -1626,15 +1648,15 @@ function showCommentsPanel() {
   requestAnimationFrame(renderCommentMarkers);
 }
 
-function getStoredEmail() {
+function getStoredEmail(emailInput = nameInput) {
   if (!userName) {
-    const email = nameInput.value.trim().toLowerCase();
+    const email = emailInput?.value.trim().toLowerCase() || "";
     if (!isValidEmail(email)) {
-      nameInput.setCustomValidity("Enter a valid email address.");
-      nameInput.reportValidity();
+      emailInput?.setCustomValidity("Enter a valid email address.");
+      emailInput?.reportValidity();
       return "";
     }
-    nameInput.setCustomValidity("");
+    emailInput.setCustomValidity("");
     userName = email;
     localStorage.setItem("html-collab-name", userName);
     postJson(`/api/rooms/${roomId}/presence`, { clientId, name: userName, color: clientColor });
@@ -1693,6 +1715,10 @@ function initials(name) {
     .slice(0, 2)
     .map((part) => part[0])
     .join("") || "A";
+}
+
+function formatAuthorName(name) {
+  return String(name || "Anonymous").replace(/^([^@\s]+)@.+$/, "$1");
 }
 
 function formatTime(value) {
