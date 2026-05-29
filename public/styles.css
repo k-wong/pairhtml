@@ -386,6 +386,10 @@ body.resizing-comments .panel-resize-handle::before {
   position: absolute;
   top: -14px;
   right: -12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 2px;
   border: 0;
   background: rgba(58, 58, 60, 0.96);
   color: #ffffff;
@@ -427,8 +431,8 @@ body.resizing-comments .panel-resize-handle::before {
 }
 
 .composer.composer-single-field {
-  padding-top: 14px;
-  padding-bottom: 14px;
+  padding-top: 16px;
+  padding-bottom: 12px;
 }
 
 .composer.composer-single-field textarea {
@@ -443,7 +447,7 @@ body.resizing-comments .panel-resize-handle::before {
 .composer-actions {
   position: absolute;
   right: 22px;
-  bottom: 20px;
+  bottom: 22px;
   display: flex;
   z-index: 2;
 }
