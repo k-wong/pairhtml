@@ -366,18 +366,6 @@ body.resizing-comments .panel-resize-handle::before {
   box-shadow: 0 20px 60px rgb(0 0 0 / 28%);
 }
 
-.composer::before {
-  content: "";
-  position: absolute;
-  left: -24px;
-  top: 10px;
-  width: 30px;
-  height: 30px;
-  border-radius: 17px 17px 17px 4px;
-  background: var(--accent);
-  box-shadow: 0 10px 24px rgb(0 0 0 / 18%);
-}
-
 .composer.hidden {
   display: none;
 }
