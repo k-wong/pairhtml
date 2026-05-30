@@ -1,6 +1,6 @@
-# PAIRHTML
+# PairHTML
 
-PAIRHTML is a minimal browser app for collaboratively reviewing and editing HTML files.
+PairHTML is a minimal browser app for collaboratively reviewing and editing HTML files.
 
 ## Features
 
@@ -26,9 +26,8 @@ This app includes a Cloudflare Worker entrypoint in `src/worker.mjs`.
 - Static files are served from `public/` with Workers static assets.
 - Live room state, comments, edits, presence, and SSE clients are coordinated by one Durable Object per room.
 - Room HTML, comments, and edits automatically expire 24 hours after the room's first content write.
-- Commenter emails are stored in D1 in `comment_users(email, created_at, last_seen)`.
-
-Create a D1 database, replace the placeholder `database_id` in `wrangler.toml`, then run:
+- Commenters are stored in D1 in `comment_users(email, created_at, last_seen)`.
+- Prompt Codex/Claude to complete setup with your Cloudflare account, creating a D1 database, creating a `wrangler.toml`, and then run:
 
 ```sh
 npm install
