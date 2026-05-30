@@ -6,6 +6,20 @@ const maxPanelWidth = 640;
 const maxUploadBytes = 2 * 1024 * 1024;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const composerOffset = { x: 20, y: 5 };
+const frameCsp = "script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'";
+const blockedElementsSelector = "script, iframe, object, embed, base, form, meta[http-equiv]";
+const urlAttributeNames = new Set([
+  "action",
+  "background",
+  "cite",
+  "data",
+  "formaction",
+  "href",
+  "lowsrc",
+  "poster",
+  "src",
+  "xlink:href",
+]);
 
 let userName = localStorage.getItem("html-collab-name") || "";
 if (userName && !isValidEmail(userName)) {
@@ -263,15 +277,103 @@ function connectEvents() {
 
 function sanitizeHtml(html) {
   const doc = new DOMParser().parseFromString(html, "text/html");
-  doc.querySelectorAll("script").forEach((node) => node.remove());
-  doc.querySelectorAll("*").forEach((node) => {
-    for (const attr of Array.from(node.attributes)) {
-      if (attr.name.toLowerCase().startsWith("on")) {
+  sanitizeDocument(doc);
+  ensureFrameCsp(doc);
+  return `<!doctype html>\n${doc.documentElement.outerHTML}`;
+}
+
+function sanitizeHtmlFragment(html) {
+  const template = preview.contentDocument.createElement("template");
+  template.innerHTML = html.trim();
+  sanitizeContainer(template.content);
+  return template;
+}
+
+function sanitizeDocument(doc) {
+  sanitizeContainer(doc);
+}
+
+function sanitizeContainer(root) {
+  root.querySelectorAll(blockedElementsSelector).forEach((node) => node.remove());
+  root.querySelectorAll("*").forEach(sanitizeElement);
+}
+
+function sanitizeElement(node) {
+  for (const attr of Array.from(node.attributes)) {
+    const name = attr.name.toLowerCase();
+    if (name.startsWith("on") || name === "srcdoc") {
+      node.removeAttribute(attr.name);
+      continue;
+    }
+    if (name === "style") {
+      const safeStyle = sanitizeStyleValue(attr.value);
+      if (safeStyle) {
+        node.setAttribute(attr.name, safeStyle);
+      } else {
         node.removeAttribute(attr.name);
       }
+      continue;
     }
-  });
-  return `<!doctype html>\n${doc.documentElement.outerHTML}`;
+    if (name === "srcset") {
+      if (!isSafeSrcset(attr.value)) node.removeAttribute(attr.name);
+      continue;
+    }
+    if (urlAttributeNames.has(name) && !isSafeUrl(attr.value)) {
+      node.removeAttribute(attr.name);
+    }
+  }
+}
+
+function ensureFrameCsp(doc) {
+  let head = doc.head;
+  if (!head) {
+    head = doc.createElement("head");
+    doc.documentElement.insertBefore(head, doc.body || null);
+  }
+  head.querySelectorAll("meta[http-equiv='Content-Security-Policy' i]").forEach((node) => node.remove());
+  const meta = doc.createElement("meta");
+  meta.setAttribute("http-equiv", "Content-Security-Policy");
+  meta.setAttribute("content", frameCsp);
+  head.prepend(meta);
+}
+
+function sanitizeStyleValue(value) {
+  const style = String(value || "").replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+  if (!style) return "";
+  if (/expression\s*\(/i.test(style) || /javascript\s*:/i.test(style) || /behavior\s*:/i.test(style) || /-moz-binding/i.test(style)) {
+    return "";
+  }
+  const urls = style.match(/url\s*\(([^)]*)\)/gi) || [];
+  for (const item of urls) {
+    const rawUrl = item.replace(/^url\s*\(/i, "").replace(/\)$/i, "").trim().replace(/^['"]|['"]$/g, "");
+    if (!isSafeStyleUrl(rawUrl)) return "";
+  }
+  return style;
+}
+
+function isSafeStyleUrl(value) {
+  const url = normalizeUrlValue(value);
+  return Boolean(url && (url.startsWith("#") || /^data:image\/(?:png|jpe?g|gif|webp|svg\+xml);/i.test(url)));
+}
+
+function isSafeUrl(value) {
+  const url = normalizeUrlValue(value);
+  if (!url) return true;
+  if (url.startsWith("#") || url.startsWith("/") || url.startsWith("./") || url.startsWith("../") || url.startsWith("?")) return true;
+  if (/^(https?:|mailto:|tel:)/i.test(url)) return true;
+  return /^data:image\/(?:png|jpe?g|gif|webp|svg\+xml);/i.test(url);
+}
+
+function isSafeSrcset(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim().split(/\s+/)[0])
+    .filter(Boolean)
+    .every(isSafeUrl);
+}
+
+function normalizeUrlValue(value) {
+  return String(value || "").replace(/[\u0000-\u001f\u007f\s]+/g, "").trim();
 }
 
 function renderFrame() {
@@ -279,7 +381,7 @@ function renderFrame() {
   selectedElement = null;
   selectedElements = [];
   preview.addEventListener("load", onFrameLoaded, { once: true });
-  preview.srcdoc = currentHtml || "<!doctype html><html><body></body></html>";
+  preview.srcdoc = currentHtml ? sanitizeHtml(currentHtml) : sanitizeHtml("<!doctype html><html><body></body></html>");
 }
 
 function onFrameLoaded() {
@@ -1100,8 +1202,7 @@ function applyInsertAtEdit(edit) {
 
 function htmlsToElements(htmls) {
   return htmls.map((html) => {
-    const template = preview.contentDocument.createElement("template");
-    template.innerHTML = html.trim();
+    const template = sanitizeHtmlFragment(html);
     const element = template.content.firstElementChild;
     if (!element) return null;
     element.classList.remove("collab-selected", "collab-selected-large", "collab-editing");

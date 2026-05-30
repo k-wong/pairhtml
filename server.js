@@ -10,6 +10,43 @@ const rooms = new Map();
 const trackedUsers = new Map();
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const roomTtlMs = 24 * 60 * 60 * 1000;
+const maxRoomHtmlBytes = 2 * 1024 * 1024;
+const emailRateWindowMs = 60 * 60 * 1000;
+const maxEmailWritesPerEmailWindow = 5;
+const maxEmailWritesPerRoomWindow = 60;
+const frameCsp = "script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'";
+const appCsp = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "connect-src 'self'",
+  "frame-src 'self' about:",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");
+const securityHeaders = {
+  "content-security-policy": appCsp,
+  "strict-transport-security": "max-age=31536000; includeSubDomains; preload",
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+  "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+  "x-frame-options": "DENY",
+};
+const urlAttributeNames = [
+  "action",
+  "background",
+  "cite",
+  "data",
+  "formaction",
+  "href",
+  "lowsrc",
+  "poster",
+  "src",
+  "xlink:href",
+];
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -42,6 +79,7 @@ function sendJson(res, status, body) {
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
+    ...securityHeaders,
   });
   res.end(JSON.stringify(body));
 }
@@ -80,9 +118,10 @@ function normalizeEmail(value) {
   return emailPattern.test(email) ? email : "";
 }
 
-function trackCommentEmail(email) {
+function trackCommentEmail(room, email) {
   const normalized = normalizeEmail(email);
   if (!normalized) return;
+  if (!allowEmailTrackingWrite(room, normalized)) return;
 
   const now = new Date().toISOString();
   const existing = trackedUsers.get(normalized);
@@ -90,6 +129,22 @@ function trackCommentEmail(email) {
     createdAt: existing?.createdAt || now,
     lastSeen: now,
   });
+}
+
+function allowEmailTrackingWrite(room, email) {
+  const now = Date.now();
+  const windowStart = now - emailRateWindowMs;
+  room.emailRateLimits ||= { room: [], emails: {} };
+  room.emailRateLimits.room = pruneRateEvents(room.emailRateLimits.room, windowStart);
+  room.emailRateLimits.emails[email] = pruneRateEvents(room.emailRateLimits.emails[email], windowStart);
+
+  if (room.emailRateLimits.room.length >= maxEmailWritesPerRoomWindow || room.emailRateLimits.emails[email].length >= maxEmailWritesPerEmailWindow) {
+    return false;
+  }
+
+  room.emailRateLimits.room.push(now);
+  room.emailRateLimits.emails[email].push(now);
+  return true;
 }
 
 function hasRoomContent(room) {
@@ -144,12 +199,99 @@ function broadcast(room, event, data, exceptId) {
   }
 }
 
+function sanitizeDocumentHtml(html) {
+  return ensureDocumentCsp(sanitizeHtmlFragment(html));
+}
+
+function sanitizeHtmlFragment(html) {
+  let clean = String(html || "");
+  clean = clean.replace(/<\s*(script|iframe|object|embed|form)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "");
+  clean = clean.replace(/<\s*(script|iframe|object|embed|base|form)\b[^>]*\/?\s*>/gi, "");
+  clean = clean.replace(/<meta\b[^>]*http-equiv\s*=\s*["']?[^"'>\s]+["']?[^>]*>/gi, "");
+  clean = clean.replace(/\s+on[\w:-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+)/gi, "");
+  clean = clean.replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+)/gi, "");
+  clean = clean.replace(/\s+style\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi, (_match, doubleQuoted, singleQuoted, bare) => {
+    const safeStyle = sanitizeStyleValue(doubleQuoted || singleQuoted || bare || "");
+    return safeStyle ? ` style="${escapeHtmlAttribute(safeStyle)}"` : "";
+  });
+  clean = clean.replace(/\s+srcset\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi, (match, doubleQuoted, singleQuoted, bare) => (
+    isSafeSrcset(doubleQuoted || singleQuoted || bare || "") ? match : ""
+  ));
+  for (const name of urlAttributeNames) {
+    const pattern = new RegExp(`\\s+(${name.replace(":", "\\:")})\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>` + "`" + `]+))`, "gi");
+    clean = clean.replace(pattern, (match, _name, doubleQuoted, singleQuoted, bare) => (
+      isSafeUrl(doubleQuoted || singleQuoted || bare || "") ? match : ""
+    ));
+  }
+  return clean;
+}
+
+function ensureDocumentCsp(html) {
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${escapeHtmlAttribute(frameCsp)}">`;
+  const withoutExistingCsp = String(html || "").replace(/<meta\b[^>]*http-equiv\s*=\s*["']?content-security-policy["']?[^>]*>/gi, "");
+
+  if (/<head\b[^>]*>/i.test(withoutExistingCsp)) {
+    return `<!doctype html>\n${withoutExistingCsp.replace(/<!doctype[^>]*>\s*/i, "").replace(/<head\b([^>]*)>/i, `<head$1>${meta}`)}`;
+  }
+  if (/<html\b[^>]*>/i.test(withoutExistingCsp)) {
+    return `<!doctype html>\n${withoutExistingCsp.replace(/<!doctype[^>]*>\s*/i, "").replace(/<html\b([^>]*)>/i, `<html$1><head>${meta}</head>`)}`;
+  }
+  return `<!doctype html>\n<html><head>${meta}</head><body>${withoutExistingCsp}</body></html>`;
+}
+
+function sanitizeStyleValue(value) {
+  const style = String(value || "").replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+  if (!style) return "";
+  if (/expression\s*\(/i.test(style) || /javascript\s*:/i.test(style) || /behavior\s*:/i.test(style) || /-moz-binding/i.test(style)) {
+    return "";
+  }
+  const urls = style.match(/url\s*\(([^)]*)\)/gi) || [];
+  for (const item of urls) {
+    const rawUrl = item.replace(/^url\s*\(/i, "").replace(/\)$/i, "").trim().replace(/^['"]|['"]$/g, "");
+    if (!isSafeStyleUrl(rawUrl)) return "";
+  }
+  return style;
+}
+
+function isSafeStyleUrl(value) {
+  const url = normalizeUrlValue(value);
+  return Boolean(url && (url.startsWith("#") || /^data:image\/(?:png|jpe?g|gif|webp|svg\+xml);/i.test(url)));
+}
+
+function isSafeUrl(value) {
+  const url = normalizeUrlValue(value);
+  if (!url) return true;
+  if (url.startsWith("#") || url.startsWith("/") || url.startsWith("./") || url.startsWith("../") || url.startsWith("?")) return true;
+  if (/^(https?:|mailto:|tel:)/i.test(url)) return true;
+  return /^data:image\/(?:png|jpe?g|gif|webp|svg\+xml);/i.test(url);
+}
+
+function isSafeSrcset(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim().split(/\s+/)[0])
+    .filter(Boolean)
+    .every(isSafeUrl);
+}
+
+function normalizeUrlValue(value) {
+  return String(value || "").replace(/[\u0000-\u001f\u007f\s]+/g, "").trim();
+}
+
+function pruneRateEvents(events, windowStart) {
+  return Array.isArray(events) ? events.filter((timestamp) => Number(timestamp) > windowStart) : [];
+}
+
+function escapeHtmlAttribute(value) {
+  return String(value).replaceAll("&", "&amp;").replaceAll('"', "&quot;");
+}
+
 function serveStatic(req, res, pathname) {
   const requestedPath = pathname === "/" ? "/index.html" : pathname;
   const filePath = path.normalize(path.join(publicDir, requestedPath));
 
   if (!filePath.startsWith(publicDir)) {
-    res.writeHead(403);
+    res.writeHead(403, securityHeaders);
     res.end("Forbidden");
     return;
   }
@@ -164,6 +306,7 @@ function serveStatic(req, res, pathname) {
     res.writeHead(200, {
       "content-type": mimeTypes[path.extname(filePath)] || "application/octet-stream",
       "cache-control": "no-store",
+      ...securityHeaders,
     });
     res.end(data);
   });
@@ -185,6 +328,7 @@ const server = http.createServer(async (req, res) => {
       "cache-control": "no-cache, no-transform",
       connection: "keep-alive",
       "x-accel-buffering": "no",
+      ...securityHeaders,
     });
     res.write("\n");
 
@@ -220,7 +364,12 @@ const server = http.createServer(async (req, res) => {
       const body = await readJson(req);
 
       if (action === "html") {
-        room.html = String(body.html || "");
+        const html = String(body.html || "");
+        if (Buffer.byteLength(html, "utf8") > maxRoomHtmlBytes) {
+          sendJson(res, 413, { error: "HTML file is too large. Keep uploads under 2 MB." });
+          return;
+        }
+        room.html = sanitizeDocumentHtml(html);
         room.comments = [];
         room.edits = [];
         room.expiresAt = new Date(Date.now() + roomTtlMs).toISOString();
@@ -241,7 +390,7 @@ const server = http.createServer(async (req, res) => {
           text: String(body.text || "").slice(0, 5000),
           createdAt: body.createdAt || new Date().toISOString(),
         };
-        trackCommentEmail(comment.author);
+        trackCommentEmail(room, comment.author);
         room.comments.push(comment);
         ensureRoomExpiration(room);
         broadcast(room, "comment", comment);
@@ -271,10 +420,10 @@ const server = http.createServer(async (req, res) => {
           targetPath: Array.isArray(body.targetPath) ? body.targetPath.map(Number) : undefined,
           items: Array.isArray(body.items) ? body.items.slice(0, 200).map((item) => ({
             path: Array.isArray(item.path) ? item.path.map(Number) : undefined,
-            html: typeof item.html === "string" ? item.html.slice(0, 1024 * 1024) : "",
+            html: typeof item.html === "string" ? sanitizeHtmlFragment(item.html.slice(0, 1024 * 1024)) : "",
           })) : undefined,
-          html: typeof body.html === "string" ? body.html.slice(0, 1024 * 1024) : undefined,
-          htmls: Array.isArray(body.htmls) ? body.htmls.slice(0, 200).map((html) => String(html).slice(0, 1024 * 1024)) : undefined,
+          html: typeof body.html === "string" ? sanitizeHtmlFragment(body.html.slice(0, 1024 * 1024)) : undefined,
+          htmls: Array.isArray(body.htmls) ? body.htmls.slice(0, 200).map((html) => sanitizeHtmlFragment(String(html).slice(0, 1024 * 1024))) : undefined,
           text: String(body.text || ""),
           author: String(body.author || "Anonymous").slice(0, 80),
           createdAt: body.createdAt || new Date().toISOString(),
