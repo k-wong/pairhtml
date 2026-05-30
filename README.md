@@ -10,7 +10,7 @@ PairHTML is a minimal browser app for collaboratively reviewing and editing HTML
 - Select, multi-select, delete, copy, paste, and edit HTML elements.
 - Leave comment threads on the page, reply, and resolve them.
 - Save the edited HTML back to a downloadable file.
-- Clone this to easily deploy behind a company firewall to use at work.
+- Clone this to easily deploy behind a company firewall to use for work.
 
 ## Run Locally
 
