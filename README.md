@@ -1,6 +1,6 @@
 # PairHTML
 
-PairHTML is a minimal browser app for collaboratively reviewing and editing HTML files. 
+PairHTML is a minimal webapp for collaboratively reviewing and editing HTML files. 
 
 ## Features
 
